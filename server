@@ -1,0 +1,51 @@
+import socket
+import ssl
+import threading
+
+HOST = "0.0.0.0"
+PORT = 5555
+
+clients = []
+
+def broadcast(message, sender_socket=None):
+    for client in clients:
+        try:
+            if client != sender_socket:
+                msg = message.encode()
+                client.sendall(len(msg).to_bytes(4, 'big')) #size of packet to expect
+                client.sendall(msg) #actual message
+        except:
+            clients.remove(client)
+
+def handle_client(client_socket):
+    while True:
+        try:
+            msg_len = int.from_bytes(client_socket.recv(4), 'big')
+            msg = client_socket.recv(msg_len).decode()
+            broadcast(msg, sender_socket=client_socket)
+        except:
+            clients.remove(client_socket)
+            client_socket.close()
+            break
+
+def main():
+    context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH) #create a defult context to communicate withthe client
+    context.check_hostname = False #skipping the hostname verification
+    context.verify_mode = ssl.CERT_NONE #certification not need since it is a local network
+    context.load_cert_chain(certfile="certificate.pem", keyfile="key.pem")  #this is provided for encryption
+
+    raw_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    raw_server.bind((HOST, PORT))
+    raw_server.listen(5)
+
+    print(f"[SERVER] Listening on {HOST}:{PORT} (SSL enabled)")
+
+    while True:
+        raw_client, addr = raw_server.accept()
+        client = context.wrap_socket(raw_client, server_side=True) #this wraps the client socket in SSL encryption
+        print(f"[NEW CONNECTION] {addr}")
+        clients.append(client)
+        threading.Thread(target=handle_client, args=(client,), daemon=True).start()
+
+if __name__ == "__main__":
+    main()
